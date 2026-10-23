@@ -1,0 +1,19 @@
+# La Selva Quiniela reverse proxy
+# APP_DOMAIN is provided by docker-compose. Examples:
+#   APP_DOMAIN=http://localhost                  → local prod smoke test on port 80, no TLS
+#   APP_DOMAIN=https://laselvaquiniela.com       → production, Caddy issues + renews Let's Encrypt cert
+#   APP_DOMAIN=:80                               → bind on every host, port 80, no TLS
+
+{$APP_DOMAIN} {
+	encode gzip zstd
+
+	# Pass through to the Next.js container.
+	reverse_proxy app:3000 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+	}
+
+	# Long cache for the immutable Next build assets.
+	@nextStatic path /_next/static/*
+	header @nextStatic Cache-Control "public, max-age=31536000, immutable"
+}

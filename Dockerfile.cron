@@ -1,0 +1,14 @@
+FROM node:24-alpine
+
+RUN apk add --no-cache supercronic && npm install -g tsx
+
+WORKDIR /app
+
+RUN npm init -y && npm install dotenv
+
+COPY scripts/autograder-cron.ts ./scripts/
+
+# Every 10 min, all hours — WC 2026 kickoffs span ~16:00–02:00 UTC.
+RUN echo "*/10 * * * * cd /app && tsx scripts/autograder-cron.ts >> /proc/1/fd/1 2>&1" > /etc/crontab
+
+CMD ["supercronic", "/etc/crontab"]

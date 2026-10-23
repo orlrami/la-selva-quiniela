@@ -1,0 +1,292 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  MEMBER
+  ADMIN
+}
+
+enum MembershipRole {
+  PLAYER
+  ADMIN
+}
+
+enum MatchStage {
+  GROUP
+  ROUND_OF_32
+  ROUND_OF_16
+  QUARTER_FINAL
+  SEMI_FINAL
+  THIRD_PLACE
+  FINAL
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  FINAL
+  POSTPONED
+  CANCELLED
+}
+
+enum Side {
+  HOME
+  AWAY
+}
+
+enum BonusCategory {
+  CHAMPION
+  RUNNER_UP
+  THIRD_PLACE
+  GOLDEN_BOOT
+  GOLDEN_GLOVE
+  GOLDEN_BALL
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String
+  usernameKey  String   @unique
+  passwordHash String
+  name         String
+  avatarColor  String   @default("#1fb6a6")
+  role         UserRole @default(MEMBER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  bonusPicks         BonusPick[]
+  createdInvites     Invite[]           @relation("InviteCreator")
+  groupOrderBonuses  GroupOrderBonus[]
+  memberships        QuinielaMember[]
+  predictions        Prediction[]
+  standingSnapshots  StandingSnapshot[]
+  usedInvites        Invite[]           @relation("InviteUsedBy")
+
+  @@index([role])
+}
+
+model Quiniela {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  isLocked    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  bonusPicks        BonusPick[]
+  groupOrderBonuses GroupOrderBonus[]
+  invites           Invite[]
+  members           QuinielaMember[]
+  predictions       Prediction[]
+  scoreRules        ScoreRule[]
+  standingSnapshots StandingSnapshot[]
+
+  @@index([isLocked])
+}
+
+model QuinielaMember {
+  id         String         @id @default(cuid())
+  userId     String
+  quinielaId String
+  role       MembershipRole @default(PLAYER)
+  nickname   String?
+  joinedAt   DateTime       @default(now())
+
+  quiniela Quiniela @relation(fields: [quinielaId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, quinielaId])
+  @@index([quinielaId, role])
+}
+
+model Invite {
+  id          String    @id @default(cuid())
+  quinielaId  String
+  token       String    @unique
+  createdById String
+  usedById    String?
+  maxUses     Int       @default(1)
+  useCount    Int       @default(0)
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  createdBy User     @relation("InviteCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  quiniela  Quiniela @relation(fields: [quinielaId], references: [id], onDelete: Cascade)
+  usedBy    User?    @relation("InviteUsedBy", fields: [usedById], references: [id], onDelete: SetNull)
+
+  @@index([quinielaId])
+  @@index([createdById])
+  @@index([usedById])
+  @@index([expiresAt])
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  shortName String
+  groupCode String
+  flagEmoji String?
+  fifaRank  Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  awayMatches       Match[]      @relation("AwayTeam")
+  bonusPicks        BonusPick[]
+  homeMatches       Match[]      @relation("HomeTeam")
+  pickedInBrackets  Prediction[] @relation("PickedWinner")
+  advancerInMatches Match[]      @relation("Advancer")
+
+  @@index([groupCode])
+}
+
+model Match {
+  id              String      @id @default(cuid())
+  matchNumber     Int         @unique
+  stage           MatchStage  @default(GROUP)
+  groupCode       String?
+  bracketSlot     String?
+  kickoffAt       DateTime
+  lockAt          DateTime
+  venue           String
+  city            String
+  homeTeamId      String?
+  awayTeamId      String?
+  homeScore          Int?
+  awayScore          Int?
+  status             MatchStatus @default(SCHEDULED)
+  advancerTeamId     String?
+  decidedByPenalties Boolean     @default(false)
+  winnerFeedsToId String?
+  winnerFeedsAs   Side?
+  loserFeedsToId  String?
+  loserFeedsAs    Side?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  advancerTeam  Team?        @relation("Advancer", fields: [advancerTeamId], references: [id], onDelete: SetNull)
+  awayTeam      Team?        @relation("AwayTeam", fields: [awayTeamId], references: [id], onDelete: Restrict)
+  homeTeam      Team?        @relation("HomeTeam", fields: [homeTeamId], references: [id], onDelete: Restrict)
+  winnerFeedsTo Match?       @relation("WinnerFeed", fields: [winnerFeedsToId], references: [id], onDelete: SetNull)
+  loserFeedsTo  Match?       @relation("LoserFeed", fields: [loserFeedsToId], references: [id], onDelete: SetNull)
+  winnerFedBy   Match[]      @relation("WinnerFeed")
+  loserFedBy    Match[]      @relation("LoserFeed")
+  predictions   Prediction[]
+
+  @@index([awayTeamId])
+  @@index([homeTeamId])
+  @@index([advancerTeamId])
+  @@index([stage, groupCode, kickoffAt])
+  @@index([status])
+  @@index([bracketSlot])
+}
+
+model Prediction {
+  id                 String    @id @default(cuid())
+  userId             String
+  quinielaId         String
+  matchId            String
+  homeScore          Int?
+  awayScore          Int?
+  pickedWinnerTeamId String?
+  points             Int       @default(0)
+  correctOutcome     Boolean   @default(false)
+  exactScore         Boolean   @default(false)
+  correctWinner      Boolean   @default(false)
+  lockedAt           DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  match            Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  quiniela         Quiniela @relation(fields: [quinielaId], references: [id], onDelete: Cascade)
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pickedWinnerTeam Team?    @relation("PickedWinner", fields: [pickedWinnerTeamId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, quinielaId, matchId])
+  @@index([matchId])
+  @@index([quinielaId, matchId])
+  @@index([userId, quinielaId])
+  @@index([pickedWinnerTeamId])
+}
+
+model ScoreRule {
+  id          String     @id @default(cuid())
+  quinielaId  String
+  stage       MatchStage @default(GROUP)
+  key         String
+  label       String
+  description String?
+  points      Int
+  active      Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  quiniela Quiniela @relation(fields: [quinielaId], references: [id], onDelete: Cascade)
+
+  @@unique([quinielaId, stage, key])
+  @@index([quinielaId, active])
+}
+
+model StandingSnapshot {
+  id                 String   @id @default(cuid())
+  quinielaId         String
+  userId             String
+  rank               Int
+  points             Int
+  correctOutcomes    Int      @default(0)
+  exactScores        Int      @default(0)
+  missingPredictions Int      @default(0)
+  calculatedAt       DateTime @default(now())
+
+  quiniela Quiniela @relation(fields: [quinielaId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([quinielaId, rank])
+  @@index([userId, calculatedAt])
+}
+
+model BonusPick {
+  id         String        @id @default(cuid())
+  userId     String
+  quinielaId String
+  category   BonusCategory
+  teamId     String?
+  playerName String?
+  points     Int           @default(0)
+  correct    Boolean       @default(false)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  quiniela Quiniela @relation(fields: [quinielaId], references: [id], onDelete: Cascade)
+  team     Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, quinielaId, category])
+  @@index([quinielaId])
+  @@index([teamId])
+}
+
+model GroupOrderBonus {
+  id           String   @id @default(cuid())
+  userId       String
+  quinielaId   String
+  groupCode    String
+  points       Int      @default(0)
+  perfectOrder Boolean  @default(false)
+  top2Correct  Boolean  @default(false)
+  calculatedAt DateTime @default(now())
+
+  quiniela Quiniela @relation(fields: [quinielaId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, quinielaId, groupCode])
+  @@index([quinielaId])
+}
